@@ -153,6 +153,29 @@ elseif("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "arm64" OR "${CMAKE_SYSTEM_PROCESSOR
 		# every Apple Silicon part has them. Older clang (Xcode 15) trips on
 		# this; newer ones happen to take the feature set from -mcpu instead.
 		add_compile_options("-march=armv8.4-a+crypto" "-mcpu=apple-m1")
+	elseif(USE_CLANG_CL)
+		# Windows-on-ARM with clang-cl. Without an explicit target, clang-cl's
+		# aarch64-pc-windows-msvc baseline is plain ARMv8.0: every std::atomic
+		# RMW becomes an LDAXR/STLXR retry loop instead of a single LSE
+		# instruction (LDADDAL/CASAL), which hurts the MTGS/MTVU ring buffers
+		# and semaphores the emu threads hand work through. Windows 11 24H2
+		# itself requires LSE, so ARMv8.1 is a safe floor for every supported
+		# machine. ARMSX2_WINARM64_CPU optionally tunes for one CPU family
+		# (e.g. "oryon-1" for Snapdragon X); unsupported values fall back.
+		# Passed via /clang: and limited to C/C++ so armasm64 never sees it.
+		set(ARMSX2_WINARM64_CPU "" CACHE STRING "Optional -mcpu for Windows ARM64 clang-cl builds (e.g. oryon-1)")
+		set(_winarm64_flag "/clang:-march=armv8.1-a")
+		if(ARMSX2_WINARM64_CPU)
+			include(CheckCXXCompilerFlag)
+			check_cxx_compiler_flag("/clang:-mcpu=${ARMSX2_WINARM64_CPU}" ARMSX2_WINARM64_CPU_SUPPORTED)
+			if(ARMSX2_WINARM64_CPU_SUPPORTED)
+				set(_winarm64_flag "/clang:-mcpu=${ARMSX2_WINARM64_CPU}")
+			else()
+				message(WARNING "clang-cl does not know -mcpu=${ARMSX2_WINARM64_CPU}; using ARMv8.1 baseline.")
+			endif()
+		endif()
+		message(STATUS "Windows ARM64 target: ${_winarm64_flag}")
+		add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:${_winarm64_flag}>")
 	elseif(NOT MSVC)
 		# Require atomic rmw instructions (LSE, ARMv8.1+). This is the upstream
 		# default and targets the broad arm64 ecosystem. MSVC (and clang-cl)
