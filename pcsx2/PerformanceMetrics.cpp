@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -48,7 +49,22 @@ static Common::Timer s_last_frame_time;
 // frames, and a whole-session average at shutdown (LogSessionSummary).
 // Gives every -logfile run a durable framerate record. Wall-clock based:
 // paused time dilutes the session average but not the rolling lines.
-static const float LOG_INTERVAL = 30.0f;
+// ARMSX2_PERFLOG_INTERVAL (seconds, >= UPDATE_INTERVAL) shortens the interval
+// for benchmarking: with timestamps on, the "| frame N" field then lets a script
+// time an exact frame range instead of a fixed wall-clock window.
+static float GetLogInterval()
+{
+	static const float interval = [] {
+		if (const char* env = std::getenv("ARMSX2_PERFLOG_INTERVAL"))
+		{
+			const float value = std::strtof(env, nullptr);
+			if (value >= UPDATE_INTERVAL)
+				return value;
+		}
+		return 30.0f;
+	}();
+	return interval;
+}
 static Common::Timer s_session_timer;
 static float s_log_accum_time = 0.0f;
 static u32 s_log_accum_frames = 0;
@@ -389,7 +405,7 @@ void PerformanceMetrics::Update(bool gs_register_write, bool fb_blit, bool is_sk
 	// Rolling perf log (uses this window's frame count before it resets).
 	s_log_accum_time += time;
 	s_log_accum_frames += s_frames_since_last_update;
-	if (s_log_accum_time >= LOG_INTERVAL)
+	if (s_log_accum_time >= GetLogInterval())
 	{
 		// The back thread only exists with GS multi-threading on, so the field is
 		// omitted rather than logged as a permanent 0% in the default configuration.
